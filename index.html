@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GW2 Fractal Materials Checker</title>
+    <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --card-bg: #2d2d2d;
+            --text-color: #ffffff;
+            --accent-color: #e67e22;
+            --border-radius: 8px;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            max-width: 600px;
+            margin: 40px auto;
+            padding: 20px;
+        }
+
+        .container {
+            background-color: var(--card-bg);
+            padding: 30px;
+            border-radius: var(--border-radius);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+
+        h1 {
+            text-align: center;
+            color: var(--accent-color);
+            margin-bottom: 25px;
+            font-size: 24px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 25px;
+        }
+
+        label {
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        input[type="text"] {
+            padding: 12px;
+            border-radius: var(--border-radius);
+            border: 1px solid #444;
+            background-color: #111;
+            color: #fff;
+            font-size: 14px;
+        }
+
+        button {
+            padding: 12px;
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 16px;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background-color: #d35400;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            font-style: italic;
+            color: #aaa;
+            margin: 15px 0;
+        }
+
+        .error {
+            display: none;
+            background-color: #c0392b;
+            color: white;
+            padding: 12px;
+            border-radius: var(--border-radius);
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .results {
+            display: none;
+            margin-top: 25px;
+            border-top: 1px solid #444;
+            padding-top: 20px;
+        }
+
+        .result-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #383838;
+        }
+
+        .result-item:last-child {
+            border-bottom: none;
+        }
+
+        .item-name {
+            font-weight: 500;
+        }
+
+        .item-count {
+            font-size: 18px;
+            font-weight: bold;
+            color: #2ecc71;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>GW2 Fractal Tracker</h1>
+    
+    <div class="form-group">
+        <label for="apiKey">Insira sua API Key do GW2:</label>
+        <input type="text" id="apiKey" placeholder="AAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE...">
+        <button onclick="fetchFractalData()">Consultar Valores</button>
+    </div>
+
+    <div id="loading" class="loading">Buscando dados na Tyria...</div>
+    <div id="error" class="error"></div>
+
+    <div id="results" class="results">
+        <div class="result-item">
+            <span class="item-name">Fractal Relics (Wallet)</span>
+            <span id="fractalRelics" class="item-count">0</span>
+        </div>
+        <div class="result-item">
+            <span class="item-name">Pristine Fractal Relics (Wallet)</span>
+            <span id="pristineRelics" class="item-count">0</span>
+        </div>
+        <div class="result-item">
+            <span class="item-name">Integrated Fractal Matrices (Bank)</span>
+            <span id="integratedMatrices" class="item-count">0</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    // IDs oficiais da API do GW2
+    const FRACTAL_RELIC_ID = 7;
+    const PRISTINE_RELIC_ID = 24;
+    const INTEGRATED_MATRIX_ID = 73248; // ID do item no banco
+
+    async function fetchFractalData() {
+        const apiKey = document.getElementById('apiKey').value.trim();
+        const loadingDiv = document.getElementById('loading');
+        const errorDiv = document.getElementById('error');
+        const resultsDiv = document.getElementById('results');
+
+        // Reset do estado da tela
+        errorDiv.style.display = 'none';
+        resultsDiv.style.display = 'none';
+        
+        if (!apiKey) {
+            showError('Por favor, insira uma API Key.');
+            return;
+        }
+
+        loadingDiv.style.display = 'block';
+
+        try {
+            // Configuração do cabeçalho de autenticação exigido pela ArenaNet
+            const headers = {
+                'Authorization': `Bearer ${apiKey}`
+            };
+
+            // 1. Busca os dados da Wallet e do Banco em paralelo para maior velocidade
+            const [walletResponse, bankResponse] = await Promise.all([
+                fetch('https://api.guildwars2.com/v2/account/wallet', { headers }),
+                fetch('https://api.guildwars2.com/v2/account/bank', { headers })
+            ]);
+
+            if (!walletResponse.ok || !bankResponse.ok) {
+                throw new Error('Chave de API inválida ou sem permissões suficientes (verifique se marcou "account", "wallet" e "inventories").');
+            }
+
+            const walletData = await walletResponse.json();
+            const bankData = await bankResponse.json();
+
+            // 2. Processa os dados da Wallet (Relics e Pristine)
+            let fractalRelics = 0;
+            let pristineRelics = 0;
+
+            walletData.forEach(currency => {
+                if (currency.id === FRACTAL_RELIC_ID) fractalRelics = currency.value;
+                if (currency.id === PRISTINE_RELIC_ID) pristineRelics = currency.value;
+            });
+
+            // 3. Processa os dados do Banco (Integrated Matrices)
+            let integratedMatrices = 0;
+            
+            // O banco pode conter slots vazios (null), então filtramos antes de somar
+            if (Array.isArray(bankData)) {
+                bankData.forEach(item => {
+                    if (item && item.id === INTEGRATED_MATRIX_ID) {
+                        integratedMatrices += item.count;
+                    }
+                });
+            }
+
+            // 4. Atualiza a interface com os valores encontrados
+            document.getElementById('fractalRelics').innerText = fractalRelics.toLocaleString();
+            document.getElementById('pristineRelics').innerText = pristineRelics.toLocaleString();
+            document.getElementById('integratedMatrices').innerText = integratedMatrices.toLocaleString();
+
+            // Mostra os resultados
+            resultsDiv.style.display = 'block';
+
+        } catch (err) {
+            showError(err.message || 'Erro ao conectar com a API do GW2.');
+        } finally {
+            loadingDiv.style.display = 'none';
+        }
+    }
+
+    function showError(message) {
+        const errorDiv = document.getElementById('error');
+        errorDiv.innerText = message;
+        errorDiv.style.display = 'block';
+    }
+</script>
+</body>
+</html>
